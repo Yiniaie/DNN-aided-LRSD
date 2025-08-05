@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 *.so
 *.egg-info/
+.eggs/
 
 # ========== 虚拟环境 ========== #
 .venv/
@@ -28,6 +29,7 @@ log/
 
 # ========== Jupyter 检查点 ========== #
 .ipynb_checkpoints/
+*.nbconvert.ipynb
 
 # ========== 系统文件 ========== #
 .DS_Store
@@ -38,8 +40,29 @@ ehthumbs.db
 # ========== IDE 文件 ========== #
 .vscode/
 .idea/
-*.sublime-*
+
+# ========== 构建文件 ========== #
+build/
+dist/
+*.egg
+MANIFEST
+
+# ========== 模型输出（可选） ========== #
+*.h5
+*.ckpt
+*.pt
+*.onnx
+*.tflite
 
 # ========== Conda 环境文件（常手动保存） ========== #
 *.yml
 *.yaml
+
+# ========== 数据库文件（可选） ========== #
+*.db
+*.sqlite
+
+# ========== 结果输出（可选） ========== #
+output/
+outputs/
+result/
