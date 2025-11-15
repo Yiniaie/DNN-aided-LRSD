@@ -2,6 +2,26 @@ import torch
 import torch.nn as nn
 import numpy as np
 import random
+from scipy.ndimage import grey_dilation, grey_erosion, gaussian_filter, convolve,  sobel
+
+
+def collate_fn_filter_none(batch):
+    batch = [b for b in batch if b is not None]
+    if len(batch) == 0:
+        return None  # 或者 raise StopIteration("Empty batch")
+    return default_collate(batch)
+
+def convert_to_serializable(d):
+    """将 dict 中不可序列化的 Path 等对象转换为字符串"""
+    new_d = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            new_d[k] = convert_to_serializable(v)
+        elif isinstance(v, Path):
+            new_d[k] = str(v)
+        else:
+            new_d[k] = v
+    return new_d
 
 
 def get_collate_fn_pad(batch_size, frame_input):
@@ -23,51 +43,47 @@ def default_collate(batch):
     coords = [item[2] for item in batch]  # 保持 list 形式，不堆叠成 tensor
     return imgs, masks, coords
 
-
-def post_processing_mean(img, normalize_per_channel=True, ratio=0.2):
+def post_processing(input: np.ndarray, R_o=11, R_i=3) -> np.ndarray:
     """
-    - normalize_per_channel: 是否对每个通道分别归一化
-    - 输出为 uint8，(C, H, W)
+    Morphological small target enhancement + per-frame normalization to [0,255].
+
+    Args:
+        input: np.ndarray of shape (N, H, W), float32 or uint8
+
+    Returns:
+        np.ndarray of shape (N, H, W), uint8
     """
-    img = img.astype(np.float32)
-    C, H, W = img.shape
-    out = np.zeros((C, H, W), dtype=np.uint8)
+    img = input.astype(np.float32)
+    n1, n2, n3 = img.shape
 
-    # 每通道单独归一化（可选）
-    if normalize_per_channel:
-        for i in range(C):
-            ch = img[i]
-            ch_min = ch.min()
-            ch_max = ch.max()
-            img[i] = (ch - ch_min) / (ch_max - ch_min + 1e-8) if ch_max != ch_min else 0
-    else:
-        img_min = img.min()
-        img_max = img.max()
-        img = (img - img_min) / (img_max - img_min + 1e-8)
+    # Construct ring-shaped structuring element
+    d = 2 * R_o + 1
+    SE = np.ones((d, d), dtype=np.float32)
+    start = R_o + 1 - R_i
+    end = R_o + 1 + R_i
+    SE[start:end, start:end] = 0
+    B_b = np.ones((R_i, R_i), dtype=np.float32)
 
-    for i in range(C):
-        layer = img[i]
-        max_val = layer.max()
-        threshold = ratio * max_val
-        mask = layer > threshold
+    # Top-hat enhancement + normalization in a single loop
+    for i in range(n1):
+        # white top-hat: orig - open(orig)
+        img_d = grey_dilation(img[i], structure=SE)
+        img_e = grey_erosion(img_d, structure=B_b)
+        out = img[i] - img_e
+        out[out < 0] = 0
 
-        if np.any(mask):
-            mean_val = layer[mask].mean()
-            processed = np.maximum(layer - mean_val, 0)
+        # per-frame normalization to [0,255]
+        min_val = out.min()
+        max_val = out.max()
+        if max_val != min_val:
+            out = (out - min_val) / (max_val - min_val) * 255.
         else:
-            processed = np.zeros_like(layer)
+            out[:] = 0  # all values are identical
 
-        # 每层独立归一化再转 uint8
-        p_min = processed.min()
-        p_max = processed.max()
-        if p_max != p_min:
-            processed = (processed - p_min) / (p_max - p_min + 1e-8)
-        else:
-            processed[:] = 0
+        img[i] = out
 
-        out[i] = (processed * 255).astype(np.uint8)
+    return img.astype(np.uint8)
 
-    return out
 
 def np_normalized(input: np.ndarray) -> np.ndarray:
     """
